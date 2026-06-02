@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}收集 - 番剧年表{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">数据收集</h3>
+
+<div class="card mb-3">
+    <div class="card-header">收集参数</div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-sm-6 col-lg-3">
+                <label class="form-label">起始年份</label>
+                <input type="number" class="form-control" id="startYear" value="1975" min="1975" max="2030">
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <label class="form-label">结束年份</label>
+                <input type="number" class="form-control" id="endYear" value="2026" min="1975" max="2030">
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="form-check mt-sm-4">
+                    <input class="form-check-input" type="checkbox" id="enrichCheck">
+                    <label class="form-check-label" for="enrichCheck">收集后补充详情（放送星期、制作公司）</label>
+                </div>
+            </div>
+            <div class="col-sm-6 col-lg-3">
+                <div class="form-check mt-sm-4">
+                    <input class="form-check-input" type="checkbox" id="noCacheCheck">
+                    <label class="form-check-label" for="noCacheCheck">忽略缓存，重新从 API 拉取</label>
+                </div>
+            </div>
+        </div>
+        <div class="mt-3">
+            <button class="btn btn-primary" id="collectBtn" onclick="startCollect()">开始收集</button>
+            <button class="btn btn-outline-secondary ms-2" id="refreshBtn" onclick="refreshData()">刷新内存数据</button>
+        </div>
+    </div>
+</div>
+
+<div id="progressArea" style="display:none">
+    <div class="card">
+        <div class="card-header">收集进度</div>
+        <div class="card-body">
+            <div class="progress mb-2" style="height:24px">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" id="progressBar" style="width:0%"></div>
+            </div>
+            <div id="progressText" class="text-body-secondary mb-3" style="font-size:.85rem"></div>
+            <div class="progress-log" id="progressLog"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let eventSource = null;
+
+async function startCollect() {
+    const btn = document.getElementById('collectBtn');
+    btn.disabled = true;
+    btn.textContent = '收集中...';
+
+    const params = {
+        start_year: parseInt(document.getElementById('startYear').value),
+        end_year: parseInt(document.getElementById('endYear').value),
+        enrich: document.getElementById('enrichCheck').checked,
+        no_cache: document.getElementById('noCacheCheck').checked,
+    };
+
+    const res = await api('POST', '/api/collect', params);
+    if (!res.ok) {
+        toast(res.error || '启动失败', 'danger');
+        btn.disabled = false;
+        btn.textContent = '开始收集';
+        return;
+    }
+
+    document.getElementById('progressArea').style.display = 'block';
+    document.getElementById('progressLog').innerHTML = '';
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('progressBar').textContent = '';
+
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/collect/progress');
+
+    eventSource.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        if (data.error) {
+            appendLog('错误: ' + data.error, true);
+            finishCollect();
+            return;
+        }
+        const pct = Math.round(data.completed / data.total * 100);
+        const bar = document.getElementById('progressBar');
+        bar.style.width = pct + '%';
+        bar.textContent = pct > 8 ? pct + '%' : '';
+        document.getElementById('progressText').textContent =
+            `${data.completed}/${data.total} — ${data.year}年${data.season}: ${data.count} 部`;
+        appendLog(`${data.year}年${data.season}: ${data.count} 部 (${data.completed}/${data.total})`);
+
+        if (data.completed >= data.total) {
+            appendLog('收集完成！');
+            finishCollect();
+        }
+    };
+
+    eventSource.onerror = function() {
+        eventSource.close();
+        fetch('/api/collect/status').then(r=>r.json()).then(s => {
+            if (!s.running) {
+                appendLog('连接断开，收集已结束');
+                finishCollect();
+            }
+        });
+    };
+}
+
+function finishCollect() {
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    const btn = document.getElementById('collectBtn');
+    btn.disabled = false;
+    btn.textContent = '开始收集';
+    const bar = document.getElementById('progressBar');
+    bar.style.width = '100%';
+    bar.textContent = '100%';
+    bar.classList.remove('progress-bar-animated');
+    toast('收集完成');
+}
+
+function appendLog(msg, isError) {
+    const el = document.getElementById('progressLog');
+    const line = document.createElement('div');
+    if (isError) line.classList.add('text-danger');
+    line.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+}
+
+async function refreshData() {
+    const res = await api('POST', '/api/refresh');
+    if (res.ok) toast('已刷新，共 ' + res.total + ' 条');
+    else toast('刷新失败', 'danger');
+}
+</script>
+{% endblock %}

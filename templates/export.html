@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}导出 - 番剧年表{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">导出 Excel</h3>
+
+<div class="card mb-3">
+    <div class="card-header">导出选项</div>
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-sm-6 col-lg-4">
+                <label class="form-label">文件名（留空使用默认）</label>
+                <input type="text" class="form-control" id="exportFilename" placeholder="番剧年表_YYYYMMDD.xlsx">
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="byYearCheck">
+                    <label class="form-check-label" for="byYearCheck">按年份分别导出（输出到 output/按年份/ 目录）</label>
+                </div>
+            </div>
+            <div class="col-12 col-lg-4">
+                <button class="btn btn-primary" id="exportBtn" onclick="doExport()">导出</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">已有导出文件</div>
+    <div class="card-body p-0">
+        {% if files %}
+        <ul class="list-group list-group-flush">
+            {% for f in files %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <a href="/api/export/download/{{ f.name }}">{{ f.name }}</a>
+                <span class="badge text-bg-secondary">{{ f.size }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-body-secondary text-center p-3" style="font-size:.85rem">暂无导出文件</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function doExport() {
+    const btn = document.getElementById('exportBtn');
+    btn.disabled = true;
+    btn.textContent = '导出中...';
+
+    const params = {
+        filename: document.getElementById('exportFilename').value.trim(),
+        by_year: document.getElementById('byYearCheck').checked,
+    };
+
+    try {
+        const res = await api('POST', '/api/export', params);
+        if (res.ok) {
+            if (res.files) {
+                toast('已按年份导出 ' + res.files.length + ' 个文件');
+            } else {
+                toast('已导出: ' + res.filename);
+            }
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            toast(res.error || '导出失败', 'danger');
+        }
+    } catch (e) {
+        toast('导出异常: ' + e, 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '导出';
+    }
+}
+</script>
+{% endblock %}

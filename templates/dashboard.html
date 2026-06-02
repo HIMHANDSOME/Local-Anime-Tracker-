@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}仪表盘 - 番剧年表{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">数据概览</h3>
+
+<!-- Stat cards -->
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3 mb-4">
+    <div class="col">
+        <div class="card h-100 stat-card">
+            <div class="card-body text-center py-3">
+                <h2 class="text-primary mb-1" style="font-size:2.2rem;font-weight:700">{{ stats.total or 0 }}</h2>
+                <small class="text-body-secondary" style="font-size:.82rem;letter-spacing:.04em">番剧总数</small>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100 stat-card">
+            <div class="card-body text-center py-3">
+                <h2 class="text-info mb-1" style="font-size:2.2rem;font-weight:700">{{ stats.year_range or '-' }}</h2>
+                <small class="text-body-secondary" style="font-size:.82rem;letter-spacing:.04em">年份范围</small>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100 stat-card">
+            <div class="card-body text-center py-3">
+                <h2 class="text-success mb-1" style="font-size:2.2rem;font-weight:700">{{ stats.coverage.chinese_title.pct if stats.coverage else 0 }}%</h2>
+                <small class="text-body-secondary" style="font-size:.82rem;letter-spacing:.04em">中文译名覆盖</small>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100 stat-card">
+            <div class="card-body text-center py-3">
+                <h2 class="text-warning mb-1" style="font-size:2.2rem;font-weight:700">{{ stats.coverage.air_date.pct if stats.coverage else 0 }}%</h2>
+                <small class="text-body-secondary" style="font-size:.82rem;letter-spacing:.04em">放送日期覆盖</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Year trend chart -->
+<div class="card mb-4">
+    <div class="card-header">年度番剧数量</div>
+    <div class="card-body">
+        <div class="bar-chart" id="yearChart"></div>
+    </div>
+</div>
+
+<!-- Season & Category distribution -->
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">季度分布</div>
+            <div class="card-body d-flex flex-column align-items-center">
+                <div class="donut" id="seasonDonut"></div>
+                <div class="mt-3 d-flex flex-wrap gap-3 justify-content-center">
+                    {% for s in stats.season_dist or [] %}
+                    <span class="badge rounded-pill" style="background:var(--sc-{{ s.season }})">
+                        {{ s.season }} {{ s.count }}
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">类型分布</div>
+            <div class="card-body d-flex flex-column align-items-center">
+                <div class="donut" id="categoryDonut"></div>
+                <div class="mt-3 d-flex flex-wrap gap-3 justify-content-center">
+                    {% for c in stats.category_dist or [] %}
+                    <span class="badge rounded-pill text-bg-secondary">
+                        {{ c.category }} {{ c.count }}
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Coverage -->
+<div class="card">
+    <div class="card-header">数据覆盖率</div>
+    <div class="card-body">
+        {% for key, label in [('chinese_title','中文译名'),('air_date','放送日期'),('episodes','集数'),('studio','制作公司')] %}
+        {% set c = stats.coverage.get(key, {}) %}
+        <div class="mb-3">
+            <div class="d-flex justify-content-between mb-1">
+                <span style="font-size:.88rem">{{ label }}</span>
+                <small class="text-body-secondary">{{ c.count or 0 }} / {{ stats.total or 0 }}</small>
+            </div>
+            <div class="progress" style="height:8px">
+                <div class="progress-bar" style="width:{{ c.pct or 0 }}%"></div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const trend = {{ stats.year_trend | tojson }};
+const seasons = {{ stats.season_dist | tojson }};
+const cats = {{ stats.category_dist | tojson }};
+
+function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function buildCharts() {
+    // Year trend bar chart
+    const chart = document.getElementById('yearChart');
+    chart.innerHTML = '';
+    if (trend && trend.length) {
+        const maxCount = Math.max(...trend.map(t => t.count));
+        trend.forEach((t, i) => {
+            const col = document.createElement('div');
+            col.className = 'bar-col';
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+            bar.style.height = (t.count / maxCount * 100) + '%';
+            bar.title = t.year + '年: ' + t.count + ' 部';
+            const label = document.createElement('div');
+            label.className = 'bar-label';
+            label.textContent = t.year;
+            if (i % 5 !== 0 && i !== trend.length - 1) label.style.visibility = 'hidden';
+            const val = document.createElement('div');
+            val.className = 'bar-value';
+            val.textContent = t.count;
+            col.appendChild(val);
+            col.appendChild(bar);
+            col.appendChild(label);
+            chart.appendChild(col);
+        });
+    }
+
+    // Season donut
+    const seasonTotal = seasons.reduce((s,x) => s + x.count, 0);
+    const sw = cssVar('--winter'), sp = cssVar('--spring'), su = cssVar('--summer'), sf = cssVar('--fall');
+    const seasonColorMap = {'一月': sw, '四月': sp, '七月': su, '十月': sf};
+    let seasonGrad = '', seasonOffset = 0;
+    seasons.forEach(s => {
+        const pct = s.count / seasonTotal * 100;
+        seasonGrad += seasonColorMap[s.season] + ' ' + seasonOffset + '% ' + (seasonOffset + pct) + '%,';
+        seasonOffset += pct;
+    });
+    document.getElementById('seasonDonut').style.background = 'conic-gradient(' + seasonGrad.slice(0,-1) + ')';
+    document.getElementById('seasonDonut').innerHTML = '<div class="donut-center">' + seasonTotal + '<br><small>部</small></div>';
+
+    // Category donut
+    const catTotal = cats.reduce((s,x) => s + x.count, 0);
+    const catColors = [
+        cssVar('--chart-cat1'), cssVar('--chart-cat2'), cssVar('--chart-cat3'),
+        cssVar('--chart-cat4'), cssVar('--chart-cat5')
+    ];
+    let catGrad = '', catOffset = 0;
+    cats.forEach((c, i) => {
+        const pct = c.count / catTotal * 100;
+        catGrad += catColors[i % catColors.length] + ' ' + catOffset + '% ' + (catOffset + pct) + '%,';
+        catOffset += pct;
+    });
+    document.getElementById('categoryDonut').style.background = 'conic-gradient(' + catGrad.slice(0,-1) + ')';
+    document.getElementById('categoryDonut').innerHTML = '<div class="donut-center">' + catTotal + '<br><small>部</small></div>';
+}
+
+buildCharts();
+window.addEventListener('themechange', buildCharts);
+</script>
+{% endblock %}

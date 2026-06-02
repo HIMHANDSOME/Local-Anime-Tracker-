@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}浏览 - 番剧年表{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">番剧浏览</h3>
+
+<!-- Filters -->
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-center">
+            <div class="col-12 col-sm-6 col-lg-3">
+                <input type="text" class="form-control" id="searchBox" placeholder="搜索日文名 / 中文名...">
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <select class="form-select" id="yearFilter" onchange="loadPage(1)"><option value="">全部年份</option></select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <select class="form-select" id="seasonFilter" onchange="loadPage(1)">
+                    <option value="">全部季度</option>
+                    <option value="一月">一月</option>
+                    <option value="四月">四月</option>
+                    <option value="七月">七月</option>
+                    <option value="十月">十月</option>
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <select class="form-select" id="categoryFilter" onchange="loadPage(1)"><option value="">全部类型</option></select>
+            </div>
+            <div class="col-6 col-sm-3 col-lg-2">
+                <select class="form-select" id="watchFilter" onchange="loadPage(1)"><option value="">全部状态</option></select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sort & Search -->
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-center">
+            <div class="col-auto">
+                <span class="text-body-secondary" style="font-size:.85rem">排序</span>
+            </div>
+            <div class="col-6 col-sm-4 col-lg-3">
+                <select class="form-select" id="sortBy" onchange="loadPage(1)">
+                    <option value="">默认（放送日期）</option>
+                    <option value="name_jp">日文名</option>
+                    <option value="name_cn">中文名</option>
+                    <option value="category">类型</option>
+                    <option value="episodes">集数</option>
+                    <option value="air_date">放送开始</option>
+                    <option value="air_weekday">星期</option>
+                    <option value="studio">制作公司</option>
+                    <option value="score">评分</option>
+                    <option value="watch_status">观看状态</option>
+                </select>
+            </div>
+            <div class="col-6 col-sm-4 col-lg-2">
+                <select class="form-select" id="sortDir" onchange="loadPage(1)">
+                    <option value="desc">降序 ↓</option>
+                    <option value="asc">升序 ↑</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary" onclick="loadPage(1)">搜索</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results -->
+<div id="animeTable"></div>
+
+<nav>
+    <ul class="pagination justify-content-center" id="pagination"></ul>
+</nav>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let filtersPopulated = false;
+
+async function loadPage(page) {
+    currentPage = page;
+
+    const sortByVal = document.getElementById('sortBy').value;
+    const dirEl = document.getElementById('sortDir');
+    if (sortByVal === 'score' || sortByVal === 'episodes') {
+        dirEl.value = 'desc';
+    } else if (['name_jp','name_cn','studio','air_date'].includes(sortByVal)) {
+        dirEl.value = 'asc';
+    }
+    const params = new URLSearchParams({
+        page: page,
+        per_page: 50,
+        q: document.getElementById('searchBox').value,
+        year: document.getElementById('yearFilter').value,
+        season: document.getElementById('seasonFilter').value,
+        category: document.getElementById('categoryFilter').value,
+        watch_status: document.getElementById('watchFilter').value,
+        sort_by: document.getElementById('sortBy').value,
+        sort_dir: document.getElementById('sortDir').value,
+    });
+
+    const res = await fetch('/api/anime?' + params);
+    const data = await res.json();
+
+    if (data.filters && !filtersPopulated) {
+        const yf = document.getElementById('yearFilter');
+        data.filters.years.slice().reverse().forEach(y => {
+            const opt = document.createElement('option');
+            opt.value = y; opt.textContent = y + '年';
+            yf.appendChild(opt);
+        });
+        const cf = document.getElementById('categoryFilter');
+        data.filters.categories.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c; opt.textContent = c;
+            cf.appendChild(opt);
+        });
+        const wf = document.getElementById('watchFilter');
+        ['想看','在看','看过','搁置','抛弃'].forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            wf.appendChild(opt);
+        });
+        filtersPopulated = true;
+    }
+
+    renderTable(data.items, data.total);
+    renderPagination(data.page, data.total_pages, data.total);
+}
+
+function seasonClass(season) {
+    return { '一月':'winter', '四月':'spring', '七月':'summer', '十月':'fall' }[season] || '';
+}
+
+function renderTable(items, total) {
+    const el = document.getElementById('animeTable');
+    if (!items.length) {
+        el.innerHTML = '<div class="card"><div class="card-body text-center text-body-secondary">无匹配结果</div></div>';
+        return;
+    }
+
+    const hasYearFilter = document.getElementById('yearFilter').value !== '';
+    const hasSeasonFilter = document.getElementById('seasonFilter').value !== '';
+    let html = '';
+
+    if (hasYearFilter && hasSeasonFilter) {
+        html += `<div class="card"><div class="table-responsive"><table class="table table-sm table-hover mb-0">
+            <thead><tr>
+                <th>日文名</th><th>中文名</th><th class="text-center">类型</th>
+                <th class="text-center">集数</th><th>放送开始</th><th class="text-center">星期</th>
+                <th>制作公司</th><th class="text-center">评分</th><th>观看状态</th>
+            </tr></thead><tbody>`;
+        items.forEach(a => {
+            const sc = seasonClass(a.season);
+            html += `<tr class="${sc}-row">
+                <td>${esc(a.name_jp)}</td>
+                <td>${esc(a.name_cn)}</td>
+                <td class="text-center">${esc(a.category)}</td>
+                <td class="text-center">${esc(a.episodes)}</td>
+                <td>${esc(a.air_date)}</td>
+                <td class="text-center">${esc(a.air_weekday)}</td>
+                <td>${esc(a.studio)}</td>
+                <td class="text-center ${a.score >= 8 ? 'score-high' : ''}">${a.score || '-'}</td>
+                <td><select class="form-select form-select-sm watch-select" onchange="updateWatch(${a.bangumi_id}, this.value)">
+                    <option value="" ${!a.watch_status?'selected':''}>-</option>
+                    <option value="想看" ${a.watch_status==='想看'?'selected':''}>想看</option>
+                    <option value="在看" ${a.watch_status==='在看'?'selected':''}>在看</option>
+                    <option value="看过" ${a.watch_status==='看过'?'selected':''}>看过</option>
+                    <option value="搁置" ${a.watch_status==='搁置'?'selected':''}>搁置</option>
+                    <option value="抛弃" ${a.watch_status==='抛弃'?'selected':''}>抛弃</option>
+                </select></td>
+            </tr>`;
+        });
+        html += '</tbody></table></div></div>';
+    } else {
+        const groups = {};
+        items.forEach(a => {
+            const key = (a.year || '?') + '年 ' + (a.season || '未知');
+            if (!groups[key]) groups[key] = { season: a.season, items: [] };
+            groups[key].items.push(a);
+        });
+
+        for (const [label, group] of Object.entries(groups)) {
+            const sc = seasonClass(group.season);
+            html += `<div class="season-group">
+                <div class="season-header ${sc}">${label}（${group.items.length}部）</div>
+                <div class="card"><div class="table-responsive"><table class="table table-sm table-hover mb-0">
+                    <thead><tr>
+                        <th>日文名</th><th>中文名</th><th class="text-center">类型</th>
+                        <th class="text-center">集数</th><th>放送开始</th><th class="text-center">星期</th>
+                        <th>制作公司</th><th class="text-center">评分</th><th>观看状态</th>
+                    </tr></thead><tbody>`;
+            group.items.forEach(a => {
+                html += `<tr class="${sc}-row">
+                    <td>${esc(a.name_jp)}</td>
+                    <td>${esc(a.name_cn)}</td>
+                    <td class="text-center">${esc(a.category)}</td>
+                    <td class="text-center">${esc(a.episodes)}</td>
+                    <td>${esc(a.air_date)}</td>
+                    <td class="text-center">${esc(a.air_weekday)}</td>
+                    <td>${esc(a.studio)}</td>
+                    <td class="text-center ${a.score >= 8 ? 'score-high' : ''}">${a.score || '-'}</td>
+                    <td><select class="form-select form-select-sm watch-select" onchange="updateWatch(${a.bangumi_id}, this.value)">
+                        <option value="" ${!a.watch_status?'selected':''}>-</option>
+                        <option value="想看" ${a.watch_status==='想看'?'selected':''}>想看</option>
+                        <option value="在看" ${a.watch_status==='在看'?'selected':''}>在看</option>
+                        <option value="看过" ${a.watch_status==='看过'?'selected':''}>看过</option>
+                        <option value="搁置" ${a.watch_status==='搁置'?'selected':''}>搁置</option>
+                        <option value="抛弃" ${a.watch_status==='抛弃'?'selected':''}>抛弃</option>
+                    </select></td>
+                </tr>`;
+            });
+            html += '</tbody></table></div></div></div>';
+        }
+    }
+
+    el.innerHTML = html;
+}
+
+function esc(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderPagination(page, totalP, total) {
+    const el = document.getElementById('pagination');
+    if (totalP <= 1) {
+        el.innerHTML = `<li class="page-item disabled"><span class="page-link text-body-secondary">共 ${total} 条</span></li>`;
+        return;
+    }
+
+    let html = '';
+    html += page > 1
+        ? `<li class="page-item"><a class="page-link" href="#" onclick="loadPage(${page-1});return false">上一页</a></li>`
+        : `<li class="page-item disabled"><span class="page-link">上一页</span></li>`;
+
+    const start = Math.max(1, page - 3);
+    const end = Math.min(totalP, page + 3);
+    for (let i = start; i <= end; i++) {
+        html += i === page
+            ? `<li class="page-item active"><span class="page-link">${i}</span></li>`
+            : `<li class="page-item"><a class="page-link" href="#" onclick="loadPage(${i});return false">${i}</a></li>`;
+    }
+
+    html += page < totalP
+        ? `<li class="page-item"><a class="page-link" href="#" onclick="loadPage(${page+1});return false">下一页</a></li>`
+        : `<li class="page-item disabled"><span class="page-link">下一页</span></li>`;
+
+    html += `<li class="page-item disabled"><span class="page-link text-body-secondary">共 ${total} 条</span></li>`;
+    el.innerHTML = html;
+}
+
+async function updateWatch(id, value) {
+    const res = await api('PUT', `/api/anime/${id}`, { watch_status: value });
+    if (res.ok) toast('已更新');
+    else toast('更新失败', 'danger');
+}
+
+document.getElementById('searchBox').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadPage(1);
+});
+
+loadPage(1);
+</script>
+{% endblock %}
